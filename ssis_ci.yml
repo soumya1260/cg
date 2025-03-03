@@ -1,0 +1,22 @@
+name: ssis-ci
+  
+on:
+    workflow_dispatch:
+      inputs:
+        ssis-project-name:
+          description: Must Specify at least one project to build.
+          default: "Universe2022_ODAG3/Universe2022_ODAG3"
+          required: true
+          type: string
+  
+jobs:
+  build:
+    uses: zilvertonz/usmg-gdem-ghactions-workflows/.github/workflows/ci.yml@feature/SLVRTNREPO-154
+    with:
+      project-type: ssis # DO NOT CHANGE THIS OPTION!!!
+      ssis-project-name: ${{ inputs.ssis-project-name }} # Must specify at least one package.
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    secrets: inherit

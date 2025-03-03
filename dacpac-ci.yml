@@ -1,0 +1,21 @@
+name: dacpac-ci
+ 
+on:
+   workflow_dispatch:
+permissions:
+    id-token: write
+    contents: read
+    packages: write
+
+jobs:  #DACPAC SQLServer
+ build:
+    uses: zilvertonz/usmg-gdem-ghactions-workflows/.github/workflows/ci.yml@feature/SLVRTNREPO-154
+    with:
+      project-type: dacpac
+      dacpac_solution_dir: "Universe2022_ODAG3"
+      dacpac_project_list: "Universe2022_ODAG3/QNXT_Custom"
+    permissions:
+      contents: read
+      id-token: write   # This is required for actions/checkout
+      packages: write   # This is required for read and pushing packages
+    secrets: inherit
