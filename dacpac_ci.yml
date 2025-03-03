@@ -1,0 +1,69 @@
+name: DACPAC
+
+on:
+  # This allows other workflows to call it.
+  workflow_call:
+    inputs:
+      dacpac_solution_dir:
+        description: The name of the sqlproj folder if not root
+        type: string
+        required: false
+      dacpac_project_list:
+        description: A list of projects to pack
+        type: string
+        required: true
+
+#Permission can be added at job level or workflow level
+permissions:
+  contents: read    # This is required for actions/checkout
+  packages: write
+
+env:
+  NUGET_DIR: ${{ inputs.dacpac_solution_dir }}\publish
+  PACKAGE_TOKEN:  ${{secrets.ORG_REPO_READ_ACCESS}}
+  PACKAGE_USER:  "GTHBAUTO_Zilver"
+
+defaults:
+  run:
+    shell: pwsh
+# Groups together all jobs that work within the workflow
+jobs:
+    build_frame:
+      runs-on: Windows-Runner
+
+      steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Get all history to allow automatic versioning using MinVer
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+
+      - name: Build with MSBuild
+        run: |
+          msbuild.exe "${{ github.workspace }}\${{ inputs.dacpac_solution_dir }}.sln" /nologo /nr:false /t:restore,build /p:Configuration=Release /p:DebugSymbols=true /p:RestorePackagesConfig=true /p:Disable_CopyWebApplication=true
+
+      - name: Pack up the projects
+        run: |
+          $env:APP_VERSION =  ($(get-date -format u).Replace('-','.').Substring(0,10)+".${{ github.run_number }}").Replace('.0','.')
+          echo "App Version: $env:APP_VERSION"
+          "${{ inputs.dacpac_project_list }}".split(',') | Foreach-Object {
+            $path = "${{ github.workspace }}\$($_.trim().split('\')[0])"
+            Get-ChildItem "${path}\*.nuspec" | Foreach-Object {
+              nuget pack $_.fullname -version $env:APP_VERSION -OutputDirectory "${{ github.workspace }}\${{ inputs.dacpac_solution_dir }}\publish" -Prop Configuration=Release
+            }
+          }
+
+      # Publish the NuGet package as an artifact for legacy, so they can be used in the following jobs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.repository.name }}
+          path: ${{ env.NUGET_DIR }}
+          retention-days: 7
+
+    push_package:
+      needs: build_frame
+      if: (always() && needs.build_frame.result == 'success')
+      uses: "./.github/workflows/nuget_package.yml"
+      secrets:  inherit

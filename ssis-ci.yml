@@ -1,0 +1,107 @@
+name: SSIS-SHARED-CI
+
+on:
+  # This allows other workflows to call it.
+  workflow_call:
+    inputs:
+      ssis-project-name:
+        description: Must Specify at least one project to build.
+        required: true
+        type: string
+
+#Permission can be added at job level or workflow level
+permissions:
+  contents: read    # This is required for actions/checkout
+  packages: write
+
+env:
+  NUGET_DIR: ${{ github.workspace }}\nuget
+  SSIS_OUT: ${ github.workspace }\build\ssis
+  SSIS_PROJECTS: ${{ inputs.ssis-project-name }}
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  ssis_build:
+    runs-on: Windows-Runner
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Get all history to allow automatic versioning using MinVer
+
+    - name: place  holder for Checkmarx replacement start
+      run: echo "Checkmarx replacement steps"
+
+    - name: place  holder for codeQL(sonarQube) start
+      run: echo "CodeQl steps"
+
+    - name: Install SSISBuild
+      run: |
+        nuget install packages.config -OutputDirectory packages
+
+    - name: List installed NuGet packages
+      run: |
+        nuget search -Source "$(Get-Location)/packages"
+
+    - name: Build SSIS Project/s
+      run: |
+        $commitHash = & git rev-parse --short HEAD
+        echo "$commitHash"
+        $env:APP_VERSION =  ($(get-date -format u).Replace('-','.').Substring(0,10)+".${{ github.run_number }}"+"-$commitHash").Replace('.0','.')
+        echo "App Version: $env:APP_VERSION"
+        
+        $env:SSIS_PROJECTS.Split(",") | ForEach {
+          
+          $env:PROJECT_NAME = $_.trim() # Removing spaces from project name
+          
+          packages\SSISBuild.2.3.0\tools\ssisbuild.exe `
+          "$env:PROJECT_NAME\$env:PROJECT_NAME.dtproj" `
+          -Configuration "Development" `
+          -ProtectionLevel DontSaveSensitive `
+          -OutputFolder "$env:SSIS_OUT"
+        
+          nuget pack $env:PROJECT_NAME\$env:PROJECT_NAME.nuspec `
+          -version $env:APP_VERSION `
+          -OutputDirectory "$env:SSIS_OUT" `
+          -Properties Configuration=Release
+        
+        }
+
+    # List directory Structure
+    - name: List directory structure
+      run: |
+        tree
+
+    # List all packages created in execution
+    - name: List NuPkg
+      run: |
+        ls "$env:SSIS_OUT"
+
+    - name: place  holder for Checkmarx replacement stop
+      run: echo "Checkmarx replacement steps"
+
+    - name: place  holder for codeQL(sonarQube) stop
+      run: echo "CodeQl steps"
+
+    #####  Uploading package and Artifacts to GitHub packages
+    # Install the .NET SDK indicated in the global.json file
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+
+    - name: Push NuPkg to GitHub Packages
+      run: |
+        dotnet nuget add source --password ${{ secrets.GITHUB_TOKEN }} --username chsdevops@cigna.com --store-password-in-clear-text --name github "https://nuget.pkg.github.com/zilvertonz/index.json"
+
+        Get-ChildItem "$env:SSIS_OUT\*.nupkg" | Foreach-Object {
+          dotnet nuget push $_ --skip-duplicate --api-key ${{ secrets.GITHUB_TOKEN }} --source github
+        }
+
+    # Publish the NuGet package as an artifact for core, so they can be used in the following jobs
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ${{ github.event.repository.name }}
+        path: ${{ env.SSIS_OUT }}
+        retention-days: 7
