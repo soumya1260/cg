@@ -1,0 +1,130 @@
+---
+name: CI
+on:
+  workflow_dispatch:
+    inputs:
+      self_contained:
+        description: Self Contained Package
+        required: false
+        type: boolean
+        default: false
+      ext_project_name:
+        description: "External project name to load the .csproj"
+        type: string
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+
+jobs:
+  Dotnet_Core_CI:
+    runs-on: windows-latest
+    env:
+      NUGET_DIR: ${{ github.workspace }}\publish
+      PACKAGE_TOKEN: ${{ secrets.ORG_REPO_READ_ACCESS }}
+      PACKAGE_USER: GTHBAUTO_Zilver
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      ## ✅ Debug Step: List Repository Contents
+      - name: Debug - List Repo Files
+        run: Get-ChildItem -Path ${{ github.workspace }} -Recurse
+        shell: pwsh
+
+      ## ✅ Debug Step: Print Inputs
+      - name: Debug - Print Input Variables
+        run: |
+          Write-Host "Self Contained: ${{ inputs.self_contained }}"
+          Write-Host "Project Name: ${{ inputs.ext_project_name }}"
+        shell: pwsh
+
+      ## ✅ Add GitHub NuGet Source
+      - name: Add GitHub NuGet Source
+        run: |
+          dotnet nuget add source "https://nuget.pkg.github.com/YOUR_ORG_OR_USERNAME/index.json" `
+            --name "github" `
+            --username ${{ env.PACKAGE_USER }} `
+            --password ${{ env.PACKAGE_TOKEN }} `
+            --store-password-in-clear-text
+        shell: pwsh
+
+      ## ✅ Debug Step: List NuGet Sources
+      - name: Debug - List NuGet Sources
+        run: dotnet nuget list source
+        shell: pwsh
+
+      ## ✅ Run Versioning Script
+      - name: Run Versioning Script
+        run: |
+          Write-Host "Running Versioning Script..."
+          # Add the actual versioning script command here
+        shell: pwsh
+
+      ## ✅ Build the Solution
+      - name: Build the Solution
+        run: |
+          Write-Host "Building the solution..."
+          dotnet build ${{ github.workspace }}
+        shell: pwsh
+
+      ## ✅ Debug Step: List Build Output
+      - name: Debug - Check Build Artifacts
+        run: Get-ChildItem -Path ${{ github.workspace }} -Recurse
+        shell: pwsh
+
+      ## ✅ Pack the NuGet Package
+      - name: Pack the NuGet Package
+        run: |
+          Write-Host "Packing NuGet package..."
+          dotnet pack --configuration Release --no-build --no-restore --output ${{ env.NUGET_DIR }}\Core
+        shell: pwsh
+
+      ## ✅ Debug Step: Check Packed Files
+      - name: Debug - List Packed Files
+        run: |
+          Get-ChildItem -Path "$env:NUGET_DIR\Core\*.nupkg" -Recurse
+        shell: pwsh
+
+      ## ✅ Organize Artifacts
+      - name: Organize Artifacts
+        run: |
+          New-Item -Path "$env:NUGET_DIR\final_artifact" -ItemType Directory -Force
+          Copy-Item -Path "$env:NUGET_DIR\Core\*.nupkg" -Destination "$env:NUGET_DIR\final_artifact\" -Force
+          if ("${{ inputs.self_contained }}" -eq "true") {
+            $scpackage = Get-ChildItem -Path "$env:NUGET_DIR\SelfContained\*.nupkg" -Recurse
+            if ($scpackage) {
+              Copy-Item -Path $scpackage.FullName -Destination "$env:NUGET_DIR\final_artifact\" -Force
+            }
+          }
+        shell: pwsh
+
+      ## ✅ Upload Artifacts
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HS.Core
+          path: ${{ env.NUGET_DIR }}\final_artifact
+          retention-days: 7
+
+      ## ✅ Debug Step: List Available NuGet Packages
+      - name: Debug - List HS.Core Versions
+        run: |
+          Write-Host "Checking available versions of HS.Core..."
+          dotnet nuget list "HS.Core" --source "https://nuget.pkg.github.com/YOUR_ORG_OR_USERNAME/index.json"
+        shell: pwsh
+
+      ## ✅ Push NuGet Package (if needed)
+      - name: Push NuGet Package
+        run: |
+          Write-Host "Pushing package to NuGet..."
+          dotnet nuget push "$env:NUGET_DIR\final_artifact\*.nupkg" `
+            --source "https://nuget.pkg.github.com/YOUR_ORG_OR_USERNAME/index.json" `
+            --api-key ${{ env.PACKAGE_TOKEN }} `
+            --skip-duplicate
+        shell: pwsh
